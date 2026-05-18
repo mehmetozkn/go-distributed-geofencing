@@ -1,83 +1,43 @@
 package main
 
 import (
-	"context"
-	"database/sql"
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
-	_ "github.com/lib/pq"
 
-	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/repository"
-	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/service"
-	transportHTTP "github.com/mehmet-ozkan/go-distributed-geofencing/internal/transport/http"
-	transportKafka "github.com/mehmet-ozkan/go-distributed-geofencing/internal/transport/kafka"
+	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/api"
+	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/api/handler"
+	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/api/repository"
+	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/api/service"
+	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/db"
+	"github.com/mehmet-ozkan/go-distributed-geofencing/pkg/postgres"
 )
 
 func main() {
-	// ── Configuration (env vars) ──────────────────────────────────
-	dbDSN := envOrDefault("DATABASE_URL", "postgres://geofencing:geofencing_secret@localhost:5432/geofencing_db?sslmode=disable")
-	kafkaBrokers := strings.Split(envOrDefault("KAFKA_BROKERS", "localhost:9092"), ",")
-	kafkaGroup := envOrDefault("KAFKA_GROUP", "geofencing-consumer-group")
+	// ── Configuration ─────────────────────────────────────────────
 	httpAddr := envOrDefault("HTTP_ADDR", ":8080")
 
-	// ── Database ──────────────────────────────────────────────────
-	db, err := sql.Open("postgres", dbDSN)
+	// ── PostgreSQL (GORM) ─────────────────────────────────────────
+	gormDB, err := postgres.New()
 	if err != nil {
-		log.Fatalf("failed to open database: %v", err)
+		log.Fatalf("failed to connect to database: %v", err)
 	}
-	defer db.Close()
+	log.Println("database connection established")
 
-	db.SetMaxOpenConns(25)
-	db.SetMaxIdleConns(10)
-	db.SetConnMaxLifetime(5 * time.Minute)
-
-	if err := db.Ping(); err != nil {
-		log.Fatalf("failed to ping database: %v", err)
-	}
-	log.Println("connected to PostgreSQL")
-
-	// Run migrations
-	if _, err := db.Exec(repository.MigrateSQL); err != nil {
-		log.Fatalf("migration failed: %v", err)
+	// ── Migrations ────────────────────────────────────────────────
+	if err := db.RunMigrations(); err != nil {
+		log.Fatalf("failed to run migrations: %v", err)
 	}
 	log.Println("database migrations applied")
 
-	// ── Repositories ──────────────────────────────────────────────
-	locationRepo := repository.NewLocationRepository(db)
-	geofenceRepo := repository.NewGeofenceRepository(db)
-
-	// ── Kafka Producer ────────────────────────────────────────────
-	producer, err := transportKafka.NewProducer(kafkaBrokers)
-	if err != nil {
-		log.Fatalf("failed to create kafka producer: %v", err)
-	}
-	defer producer.Close()
-
-	// ── Service (DI wiring) ───────────────────────────────────────
-	locationService := service.NewLocationService(producer, locationRepo, geofenceRepo)
-
-	// ── Kafka Consumer ────────────────────────────────────────────
-	consumer, err := transportKafka.NewConsumer(kafkaBrokers, kafkaGroup, locationService)
-	if err != nil {
-		log.Fatalf("failed to create kafka consumer: %v", err)
-	}
-	defer consumer.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go func() {
-		if err := consumer.Start(ctx); err != nil {
-			log.Printf("kafka consumer stopped: %v", err)
-		}
-	}()
+	// ── Repository & Service ──────────────────────────────────────
+	locationRepo := repository.NewLocationRepository(gormDB)
+	locationService := service.NewLocationService(locationRepo)
 
 	// ── HTTP Server ───────────────────────────────────────────────
 	app := fiber.New(fiber.Config{
@@ -87,8 +47,11 @@ func main() {
 	})
 	app.Use(recover.New())
 
-	handler := transportHTTP.NewLocationHandler(locationService)
-	handler.RegisterRoutes(app)
+	locationHandler := handler.NewLocationHandler(locationService)
+
+	// ── Routing ───────────────────────────────────────────────────
+	appRoute := api.NewRoute(locationHandler)
+	appRoute.SetupRoutes(&api.RouteContext{App: app})
 
 	go func() {
 		log.Printf("HTTP server listening on %s", httpAddr)
@@ -102,8 +65,6 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("shutting down...")
-
-	cancel() // stop consumer
 
 	if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
 		log.Printf("HTTP server shutdown error: %v", err)
