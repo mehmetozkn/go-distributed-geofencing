@@ -33,5 +33,5 @@ func (r *route) SetupRoutes(rc *RouteContext) {
 
 func (r *route) locationRoutes(fr fiber.Router) {
 	locGroup := fr.Group("/locations")
-	locGroup.Post("/track", r.locationHandler.IngestLocation)
+	locGroup.Post("/ingest", r.locationHandler.IngestLocation)
 }
