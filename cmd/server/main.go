@@ -9,6 +9,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"gorm.io/gorm"
 
 	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/api"
 	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/api/handler"
@@ -66,11 +67,29 @@ func main() {
 	<-quit
 	log.Println("shutting down...")
 
-	if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
-		log.Printf("HTTP server shutdown error: %v", err)
-	}
+	shutdown(app, gormDB, log.New(os.Stdout, "", 0))
 
 	log.Println("server stopped gracefully")
+}
+
+func shutdown(app *fiber.App, gormDB *gorm.DB, logger *log.Logger) {
+	// HTTP Sunucusunu Kapat
+	if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
+		logger.Printf("shutdown: HTTP server error: %v", err)
+	}
+
+	// Veritabanı Bağlantısını Kapat
+	sqlDB, err := gormDB.DB()
+	if err == nil {
+		if dbErr := sqlDB.Close(); dbErr != nil {
+			logger.Printf("shutdown: database error: %v", dbErr)
+		}
+	} else {
+		logger.Printf("shutdown: failed to retrieve database connection: %v", err)
+	}
+
+	// Loglama
+	logger.Println("shutdown: completed")
 }
 
 func envOrDefault(key, fallback string) string {
