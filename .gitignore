@@ -1,0 +1,117 @@
+# =========================
+# Environment Variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Go
+# =========================
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+
+# Build outputs
+/bin/
+/build/
+/dist/
+
+# Coverage
+coverage.out
+coverage.html
+
+# Vendor (eğer dependency'leri repo'ya koymuyorsan)
+vendor/
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+
+# =========================
+# PostgreSQL
+# =========================
+*.sql.gz
+*.dump
+*.backup
+
+# Local database files
+*.db
+*.sqlite
+*.sqlite3
+
+# =========================
+# Kafka
+# =========================
+kafka-logs/
+zookeeper-data/
+zookeeper-logs/
+
+# =========================
+# Docker
+# =========================
+.docker/
+docker-data/
+
+# Docker Compose local overrides
+docker-compose.override.yml
+
+# =========================
+# IDEs & Editors
+# =========================
+.vscode/
+.idea/
+
+# Vim
+*.swp
+*.swo
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# Temporary files
+# =========================
+tmp/
+temp/
+.cache/
+
+# =========================
+# Secrets / Certificates
+# =========================
+*.pem
+*.key
+*.crt
+*.p12
+
+# =========================
+# Air (hot reload)
+# =========================
+.air.toml
+tmp/
+
+# =========================
+# Delve Debugger
+# =========================
+__debug_bin
+
+# =========================
+# Test Artifacts
+# =========================
+test-results/
+coverage/
+
+# =========================
+# Generated files
+# =========================
+*.generated.go
