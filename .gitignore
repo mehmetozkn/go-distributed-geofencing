@@ -26,9 +26,6 @@
 coverage.out
 coverage.html
 
-# Vendor (eğer dependency'leri repo'ya koymuyorsan)
-vendor/
-
 # =========================
 # Logs
 # =========================
