@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -16,12 +17,14 @@ import (
 	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/api/repository"
 	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/api/service"
 	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/db"
+	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/transport/kafka"
 	"github.com/mehmet-ozkan/go-distributed-geofencing/pkg/postgres"
 )
 
 func main() {
 	// ── Configuration ─────────────────────────────────────────────
 	httpAddr := envOrDefault("HTTP_ADDR", ":8080")
+	kafkaBrokers := envOrDefault("KAFKA_BROKERS", "localhost:9092")
 
 	// ── PostgreSQL (GORM) ─────────────────────────────────────────
 	gormDB, err := postgres.New()
@@ -36,9 +39,23 @@ func main() {
 	}
 	log.Println("database migrations applied")
 
-	// ── Repository & Service ──────────────────────────────────────
+	// ── Repository, Kafka & Service ───────────────────────────────
 	locationRepo := repository.NewLocationRepository(gormDB)
-	locationService := service.NewLocationService(locationRepo)
+
+	// Kafka Producer
+	kafkaProducer := kafka.NewProducer([]string{kafkaBrokers}, "location-updates")
+
+	// Kafka Consumer
+	kafkaConsumer := kafka.NewConsumer([]string{kafkaBrokers}, "location-updates", "geofencing-group", locationRepo)
+
+	// Context for graceful shutdown of background workers
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start consumer in background
+	go kafkaConsumer.Start(ctx)
+
+	// Service uses Producer
+	locationService := service.NewLocationService(kafkaProducer)
 
 	// ── HTTP Server ───────────────────────────────────────────────
 	app := fiber.New(fiber.Config{
@@ -67,13 +84,24 @@ func main() {
 	<-quit
 	log.Println("shutting down...")
 
-	shutdown(app, gormDB, log.New(os.Stdout, "", 0))
+	shutdown(app, gormDB, kafkaProducer, kafkaConsumer, cancel, log.New(os.Stdout, "", 0))
 
 	log.Println("server stopped gracefully")
 }
 
-func shutdown(app *fiber.App, gormDB *gorm.DB, logger *log.Logger) {
-	// HTTP Sunucusunu Kapat
+func shutdown(app *fiber.App, gormDB *gorm.DB, kafkaProducer kafka.Producer, kafkaConsumer kafka.Consumer, cancel context.CancelFunc, logger *log.Logger) {
+	// 1. Stop consumer reading gracefully
+	cancel()
+	if err := kafkaConsumer.Close(); err != nil {
+		logger.Printf("shutdown: consumer close error: %v", err)
+	}
+
+	// 2. Close producer
+	if err := kafkaProducer.Close(); err != nil {
+		logger.Printf("shutdown: producer close error: %v", err)
+	}
+
+	// 3. HTTP Sunucusunu Kapat
 	if err := app.ShutdownWithTimeout(10 * time.Second); err != nil {
 		logger.Printf("shutdown: HTTP server error: %v", err)
 	}

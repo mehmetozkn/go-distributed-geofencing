@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/api/model"
-	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/api/repository"
+	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/transport/kafka"
 )
 
 type ILocationService interface {
@@ -14,19 +14,19 @@ type ILocationService interface {
 }
 
 type locationService struct {
-	repo repository.ILocationRepository
+	producer kafka.Producer
 }
 
-func NewLocationService(repo repository.ILocationRepository) ILocationService {
-	return &locationService{repo: repo}
+func NewLocationService(producer kafka.Producer) ILocationService {
+	return &locationService{producer: producer}
 }
 
 func (s *locationService) Ingest(ctx context.Context, loc model.Location) error {
-	if err := s.repo.Create(ctx, &loc); err != nil {
+	if err := s.producer.PublishLocation(ctx, loc); err != nil {
 		return fmt.Errorf("locationService.Ingest: %w", err)
 	}
 
-	log.Printf("[LocationService] Saved -> DeviceID: %q, Lat: %f, Lng: %f, Timestamp: %d",
+	log.Printf("[LocationService] Pushed to Kafka -> DeviceID: %q, Lat: %f, Lng: %f, Timestamp: %d",
 		loc.DeviceID, loc.Latitude, loc.Longitude, loc.Timestamp)
 
 	return nil
