@@ -1,6 +1,6 @@
 # Distributed Real-Time Geofencing & State Engine
 
-Bu proje; binlerce mobil cihazdan veya kuryeden gelen anlık konum verilerini (GPS) asenkron olarak işleyen, coğrafi sınırları (Geofence) milisaniyeler içinde tespit eden ve cihazların bölgeye giriş/çıkış anlarını **büyük veri (Big Data) ve dağıtık sistem mimarileri** kullanarak yöneten yüksek performanslı bir backend motorudur.
+Bu proje; binlerce mobil cihazdan veya kuryeden gelen anlık konum verilerini (GPS) asynchron olarak işleyen, coğrafi sınırları (Geofence) milisaniyeler içinde tespit eden ve cihazların bölgeye giriş/çıkış anlarını **büyük veri (Big Data) ve dağıtık sistem mimarileri** kullanarak yöneten yüksek performanslı bir backend motorudur.
 
 Projenin temel amacı; Uber, Getir veya BiTaksi gibi canlı operasyon yöneten sistemlerdeki **"kurye mahalleye girdi"** veya **"sürücü dinamik fiyatlandırma bölgesinden çıktı"** gibi anlık bildirimleri, veritabanını yormadan ve kullanıcılara mükerrer (spam) bildirimler göndermeden **State Machine (Durum Makinesi)** mantığıyla çözmektir.
 
@@ -23,11 +23,24 @@ Kod tabanını incelerken mimari katmanların seçimindeki mühendislik nedenler
 * **Çözüm:** Sektör standardı olan **PostGIS** uzantısını entegre ettik. Poligonları `GEOMETRY` tipinde tutup üzerlerine **GIST (Spatial Index)** tanımladık. Uygulama `ST_Contains` fonksiyonuyla `ST_MakePoint(lng, lat)` sorgusu attığında mikro saniyeler (`~1.1ms`) seviyesinde poligon eşleşmesi tamamlanır.
 
 ### 4. Durum Yönetimi ve Spam Filtresi: Neden Redis State Machine?
-* **Sorun (Kritik):** Bir kurye poligonun içinde gezinirken sürekli GPS verisi gönderir. Eğer her `rows:1` (içeride) sonucunda kullanıcıya "Alana girdi" bildirimi atarsak, kullanıcının telefonu saniyede 10 kere push notification ile kilitlenir. Ayrıca PostGIS'e her saniye gereksiz SELECT sorguları yüklenir.
-* **Çözüm:** PostGIS katmanının önüne **Redis tabanlı bir Dağıtık Durum Makinesi (Distributed State Machine)** konumlandırdık.
-  * Cihaz alana **ilk kez** girdiğinde (`PostGIS = INSIDE && Redis = NONE`), bu bir **ENTER** olayıdır. Redis'e `geofence:device_id -> zone_name` anahtarı yazılır ve alarm fırlatılır.
-  * Cihaz içeride gezinirken (`PostGIS = INSIDE && Redis = YES`), Redis cihazın zaten içeride olduğunu bilir. **Mükerrer log ve alarm üretilmesi sessizce engellenir (Spam Suppression).**
-  * Cihaz alandan çıktığında (`PostGIS = OUTSIDE && Redis = YES`), bu bir **EXIT** olayıdır. Redis'teki anahtar silinir ve çıkış alarmı fırlatılır.
+* **Kritik Yanılgı ve Gerçek Tasarım Amacı:** Bu mimaride Redis, veritabanına atılan PostGIS okuma (`SELECT`) yükünü azaltmak amacıyla **kullanılmamaktadır**. Gelen her konum verisi için PostGIS harita motoru kaçınılmaz olarak zaten tetiklenir. Redis'in asıl varoluş amacı **"State Management" (Durum Yönetimi)** yapmak ve dış dünyaya (Notification, SMS, Push vb.) binen **yazma/tetiklenme yükünü engellemektir (Spam Suppression)**.
+* **Çözüm Gücü:** Eğer Redis olmasaydı, Sultanahmet Meydanı'nda 10 dakika (600 saniye) sabit duran bir kurye için arka plandaki bildirim servislerine 600 kez "Meydana girdi!" isteği gönderilecek, bu da sistemlerin çökmesine ve faturaların şişmesine yol açacaktı. Redis tabanlı Dağıtık Durum Makinesi sayesinde:
+  * Cihaz alana **ilk kez** girdiğinde (`PostGIS = INSIDE && Redis = NONE`), bu bir **ENTER** olayıdır. Redis'e `geofence:device_id -> zone_name` anahtarı yazılır ve bildirim **sadece 1 kez** tetiklenir.
+  * Cihaz içeride gezinirken (`PostGIS = INSIDE && Redis = YES`), Redis cihazı tanır, sessizce geçilir ve arkadaki alt sistemlere gidecek olan yüzlerce gereksiz yükü tek başına bloke eder (**Idempotency Filter**).
+  * Cihaz alandan çıktığında (`PostGIS = OUTSIDE && Redis = YES`), bu bir **EXIT** olayıdır. Redis'teki anahtar silinir ve çıkış bildirimi fırlatılır.
+
+---
+
+## Veri Depolama ve Durum Matrisi (Hangi Durumda Nereye Yazılır?)
+
+Sistemde PostgreSQL (**Kara Kaplı Defter**) tarihsel geçmişi tutarken, Redis (**Anlık Durum Defteri**) sadece sınır geçişlerini takip eder. 
+
+| Senaryo | PostGIS Sonucu | Redis'teki Eski Durum | PostgreSQL (locations) | Redis Hafızası | Üretilen Olay (Event) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **1. Cihaz Dışarıda Geziyor** | `rows:0` (Dışarıda) | `NONE` (Kayıt Yok) | **KAYDEDİLİR (INSERT)** | Değişiklik Yok | Yok (Sessizce geçilir) |
+| **2. Cihaz Bölgeye Giriş Yaptı** | `rows:1` (İçeride) | `NONE` (Kayıt Yok) | **KAYDEDİLİR (INSERT)** | **YAZILIR (SET)** | **`[Geofence ENTER]`** |
+| **3. Cihaz İçeride Geziniyor** | `rows:1` (İçeride) | `YES` (Zaten Kayıtlı) | **KAYDEDİLİR (INSERT)** | Değişiklik Yok | Yok (Spam Engellenir) |
+| **4. Cihaz Bölgeden Çıktı** | `rows:0` (Dışarıda) | `YES` (İçerideydi) | **KAYDEDİLİR (INSERT)** | **SİLİNİR (DEL)** | **`[Geofence EXIT]`** |
 
 ---
 
@@ -61,7 +74,6 @@ Sistemin kararları nasıl verdiğini gösteren log hikayesi aşağıdaki gibidi
 
 ```text
 .
-
 ├── Dockerfile
 ├── README.md
 ├── docker-compose.yml
@@ -100,4 +112,3 @@ Sistemin kararları nasıl verdiğini gösteren log hikayesi aşağıdaki gibidi
    │   └── postgres.go
    └── redis
       └── redis.go
-```
