@@ -17,6 +17,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       HTTP_ADDR: ":8080"
       DB_HOST: postgres
@@ -25,12 +27,14 @@ services:
       DB_PASSWORD: password123
       DB_NAME: geofencing_db
       KAFKA_BROKERS: "kafka:9092"
+      REDIS_ADDR: "redis:6379"
 
   # ──────────────────────────────────────────────
   # PostgreSQL Database
   # ──────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: postgis/postgis:16-3.5
+    platform: linux/amd64
     container_name: geofencing-postgres
     restart: unless-stopped
     ports:
@@ -115,7 +119,25 @@ services:
       kafka:
         condition: service_healthy
 
+  # ──────────────────────────────────────────────
+  # Redis
+  # ──────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: geofencing-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis_data:/data
+
 volumes:
   postgres_data:
   pgadmin_data:
   kafka_data:
+  redis_data:

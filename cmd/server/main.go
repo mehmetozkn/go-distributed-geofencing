@@ -19,6 +19,7 @@ import (
 	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/db"
 	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/transport/kafka"
 	"github.com/mehmet-ozkan/go-distributed-geofencing/pkg/postgres"
+	pkgredis "github.com/mehmet-ozkan/go-distributed-geofencing/pkg/redis"
 )
 
 func main() {
@@ -39,14 +40,20 @@ func main() {
 	}
 	log.Println("database migrations applied")
 
-	// ── Repository, Kafka & Service ───────────────────────────────
+	// ── Redis ────────────────────────────────────────────
+	rdb, err := pkgredis.New()
+	if err != nil {
+		log.Fatalf("failed to connect to redis: %v", err)
+	}
+	log.Println("redis connection established")
 	locationRepo := repository.NewLocationRepository(gormDB)
+	geofenceRepo := repository.NewGeofenceRepository(gormDB)
 
 	// Kafka Producer
 	kafkaProducer := kafka.NewProducer([]string{kafkaBrokers}, "location-updates")
 
 	// Kafka Consumer
-	kafkaConsumer, err := kafka.NewConsumer([]string{kafkaBrokers}, "location-updates", "geofencing-group", locationRepo)
+	kafkaConsumer, err := kafka.NewConsumer([]string{kafkaBrokers}, "location-updates", "geofencing-group", locationRepo, geofenceRepo, rdb)
 	if err != nil {
 		log.Fatalf("failed to create kafka consumer: %v", err)
 	}
