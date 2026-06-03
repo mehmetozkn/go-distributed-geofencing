@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 
 	"github.com/mehmet-ozkan/go-distributed-geofencing/internal/api/model"
@@ -20,7 +21,11 @@ type consumer struct {
 	repo   repository.ILocationRepository
 }
 
-func NewConsumer(brokers []string, topic string, groupID string, repo repository.ILocationRepository) Consumer {
+func NewConsumer(brokers []string, topic string, groupID string, repo repository.ILocationRepository) (Consumer, error) {
+	if err := ensureTopic(brokers[0], topic, 3, 1); err != nil {
+		return nil, fmt.Errorf("ensure topic: %w", err)
+	}
+
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: brokers,
 		GroupID: groupID,
@@ -30,7 +35,37 @@ func NewConsumer(brokers []string, topic string, groupID string, repo repository
 	return &consumer{
 		reader: r,
 		repo:   repo,
+	}, nil
+}
+
+// ensureTopic creates the topic if it does not already exist.
+func ensureTopic(broker, topic string, numPartitions, replicationFactor int) error {
+	conn, err := kafka.Dial("tcp", broker)
+	if err != nil {
+		return fmt.Errorf("dial broker: %w", err)
 	}
+	defer conn.Close()
+
+	controller, err := conn.Controller()
+	if err != nil {
+		return fmt.Errorf("find controller: %w", err)
+	}
+
+	controllerConn, err := kafka.Dial("tcp", fmt.Sprintf("%s:%d", controller.Host, controller.Port))
+	if err != nil {
+		return fmt.Errorf("dial controller: %w", err)
+	}
+	defer controllerConn.Close()
+
+	err = controllerConn.CreateTopics(kafka.TopicConfig{
+		Topic:             topic,
+		NumPartitions:     numPartitions,
+		ReplicationFactor: replicationFactor,
+	})
+	if err != nil && err != kafka.TopicAlreadyExists {
+		return fmt.Errorf("create topic: %w", err)
+	}
+	return nil
 }
 
 func (c *consumer) Start(ctx context.Context) {

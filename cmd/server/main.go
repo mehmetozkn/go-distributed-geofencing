@@ -46,7 +46,10 @@ func main() {
 	kafkaProducer := kafka.NewProducer([]string{kafkaBrokers}, "location-updates")
 
 	// Kafka Consumer
-	kafkaConsumer := kafka.NewConsumer([]string{kafkaBrokers}, "location-updates", "geofencing-group", locationRepo)
+	kafkaConsumer, err := kafka.NewConsumer([]string{kafkaBrokers}, "location-updates", "geofencing-group", locationRepo)
+	if err != nil {
+		log.Fatalf("failed to create kafka consumer: %v", err)
+	}
 
 	// Context for graceful shutdown of background workers
 	ctx, cancel := context.WithCancel(context.Background())
