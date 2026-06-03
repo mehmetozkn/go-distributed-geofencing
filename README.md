@@ -61,21 +61,43 @@ Sistemin kararları nasıl verdiğini gösteren log hikayesi aşağıdaki gibidi
 
 ```text
 .
+
+├── Dockerfile
+├── README.md
+├── docker-compose.yml
+├── go.mod
+├── go.sum
+├── load_test.js
 ├── cmd
-│   └── api
-│       └── main.go              # Uygulamanın giriş noktası (Fiber HTTP & Kafka Consumer start)
+│   └── server
+│       └── main.go
 ├── internal
 │   ├── api
 │   │   ├── handler
-│   │   │   └── location_handler.go  # HTTP isteklerini karşılayan ve Kafka'ya iten katman
+│   │   │   └── handler.go
 │   │   ├── model
-│   │   │   └── geofence.go      # PostGIS ve GORM veri modelleri
+│   │   │   ├── geofence.go
+│   │   │   └── location.go
 │   │   ├── repository
-│   │   │   ├── geofence_repository.go # ST_Contains mekânsal sorguların atıldığı yer
-│   │   │   └── location_repository.go # Tarihsel konum loglarının kaydedildiği yer
-│   │   └── service
-│   │       └── location_service.go    # İş mantığı ve Kafka producer yönetimi
-│   └── kafka
-│       └── consumer.go          # Kuyruğu dinleyen ve Redis State Machine'i yöneten ana beyin
-├── docker-compose.yml           # Go App, Kafka, Zookeeper, PostGIS ve Redis container kurgusu
-└── README.md
+│   │   │   ├── geofence_repository.go
+│   │   │   └── location_repository.go
+│   │   ├── service
+│   │   │   └── location_service.go
+│   │   └── route.go
+│   ├── db
+│   │   ├── db.go
+│   │   └── migrations
+│   │       ├── 000001_create_locations.down.sql
+│   │       ├── 000001_create_locations.up.sql
+│   │       ├── 000002_create_geofences.down.sql
+│   │       └── 000002_create_geofences.up.sql
+│   └── transport
+│       └── kafka
+│           ├── consumer.go
+│           └── producer.go
+└── pkg
+   ├── postgres
+   │   └── postgres.go
+   └── redis
+      └── redis.go
+```
