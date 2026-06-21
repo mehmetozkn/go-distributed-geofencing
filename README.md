@@ -2,7 +2,7 @@
 
 Bu proje; binlerce mobil cihazdan veya kuryeden gelen anlık konum verilerini (GPS) asynchron olarak işleyen, coğrafi sınırları (Geofence) milisaniyeler içinde tespit eden ve cihazların bölgeye giriş/çıkış anlarını **büyük veri (Big Data) ve dağıtık sistem mimarileri** kullanarak yöneten yüksek performanslı bir backend motorudur.
 
-Projenin temel amacı; Uber, Getir veya BiTaksi gibi canlı operasyon yöneten sistemlerdeki **"kurye mahalleye girdi"** veya **"sürücü dinamik fiyatlandırma bölgesinden çıktı"** gibi anlık bildirimleri, veritabanını yormadan ve kullanıcılara mükerrer (spam) bildirimler göndermeden **State Machine (Durum Makinesi)** mantığıyla çözmektir.
+Projenin temel amacı; hızlı teslimat, araç çağırma veya lojistik gibi canlı operasyon yöneten platformlardaki **"kurye mahalleye girdi"** veya **"sürücü dinamik fiyatlandırma bölgesinden çıktı"** gibi anlık bildirimleri, veritabanını yormadan ve kullanıcılara mükerrer (spam) bildirimler göndermeden **State Machine (Durum Makinesi)** mantığıyla çözmektir.
 
 ---
 
